@@ -1,0 +1,470 @@
+unit SortThds;
+
+interface
+
+uses
+  Classes, Graphics, ExtCtrls,windows,Sysutils;
+
+type
+
+{ TSortThread }
+
+  PSortArray = ^TSortArray;
+  TSortArray = array[0..MaxInt div SizeOf(Integer) - 1] of Integer;
+
+  TSortThread = class(TThread)
+  private
+    FBox: TPaintBox;
+    FSortArray: PSortArray;
+    FSize: Integer;
+    FA, FB, FI, FJ: Integer;
+
+    procedure DoVisualSwap;
+    function GetTick:int64;
+    procedure DoShowResult;
+  protected
+    procedure Execute; override;
+    procedure VisualSwap(A, B, I, J: Integer);
+    procedure Erease(i,len:integer);
+    procedure Paint(i,len:integer);
+    procedure Sort(var A: array of Integer); virtual; abstract;
+  public
+                                                                   s:string;
+    constructor Create(Box: TPaintBox; var SortArray: array of Integer);
+
+  end;
+
+{ TBubbleSort }
+
+  TBubbleSort = class(TSortThread)
+  protected
+    procedure Sort(var A: array of Integer); override;
+  end;
+
+{ TSelectionSort }
+
+  TSelectionSort = class(TSortThread)
+  protected
+    procedure Sort(var A: array of Integer); override;
+  end;
+
+{ TQuickSort }
+
+  TQuickSort = class(TSortThread)
+  protected
+    procedure Sort(var A: array of Integer); override;
+  end;
+
+  TInsertSort = class(TSortThread)
+  protected
+    procedure Sort(var A: array of Integer); override;
+  end;
+
+  TMergeSort = class(TSortThread)
+  protected
+    procedure Sort(var A: array of Integer); override;
+  end;
+
+  THeapSort = class(TSortThread)
+  private
+    heapSize:integer;
+    function LeftChild(parent:integer):Integer;
+    function RightChild(parent:integer):Integer;    
+    procedure CreateMaxHeap(var A:array of Integer);
+    procedure MaxHeapify(var A:array of Integer;i:integer);
+    procedure Swap(var A:array of Integer;item1,item2:Integer);
+  protected
+    procedure Sort(var A: array of Integer); override;
+  end;
+
+  TCountingSort = class(TSortThread)
+  protected
+    procedure Sort(var A: array of Integer); override;
+  end;
+
+
+procedure PaintLine(Canvas: TCanvas; I, Len: Integer);
+
+implementation
+
+procedure PaintLine(Canvas: TCanvas; I, Len: Integer);
+begin
+  Canvas.PolyLine([Point(0, I * 2 + 1), Point(Len, I * 2 + 1)]);    //缝隙
+end;
+
+{ TSortThread }
+
+constructor TSortThread.Create(Box: TPaintBox; var SortArray: array of Integer);
+begin
+  FBox := Box;
+  FSortArray := @SortArray;
+  FSize := High(SortArray) - Low(SortArray) + 1;
+  FreeOnTerminate := True;
+  inherited Create(False);
+end;
+
+{ Since DoVisualSwap uses a VCL component (i.e., the TPaintBox) it should never
+  be called directly by this thread.  DoVisualSwap should be called by passing
+  it to the Synchronize method which causes DoVisualSwap to be executed by the
+  main VCL thread, avoiding multi-thread conflicts. See VisualSwap for an
+  example of calling Synchronize. }
+
+procedure TSortThread.DoVisualSwap;
+begin
+  with FBox do
+  begin
+    Canvas.Pen.Color := clBtnFace;
+    PaintLine(Canvas, FI, FA);
+    PaintLine(Canvas, FJ, FB);
+    Canvas.Pen.Color := clRed;
+    PaintLine(Canvas, FI, FB);
+    PaintLine(Canvas, FJ, FA);
+  end;
+end;
+
+{ VisusalSwap is a wrapper on DoVisualSwap making it easier to use.  The
+  parameters are copied to instance variables so they are accessable
+  by the main VCL thread when it executes DoVisualSwap }
+
+procedure TSortThread.VisualSwap(A, B, I, J: Integer);
+begin
+  FA := A;
+  FB := B;
+  FI := I;
+  FJ := J;
+  Synchronize(DoVisualSwap);
+end;
+
+{ The Execute method is called when the thread starts }
+
+procedure TSortThread.Execute;
+var
+//  sbegin,send:integer;
+    sbegin,send:int64;
+begin
+  sbegin:=GetTick;
+  Sort(Slice(FSortArray^, FSize));
+  send:=GetTick;
+//  sbegin:=GetTickCount;
+//  Sort(Slice(FSortArray^, FSize));
+//  send:=GetTickCount;
+
+  s:=IntToStr(send-sbegin) + ' 个CPU周期';
+  Synchronize(DoShowResult);
+end;
+
+procedure TSortThread.DoShowResult;
+begin
+  FBox.Canvas.TextOut(55,5,s);
+end;
+
+function TSortThread.GetTick: int64;
+asm
+  RDTSC;
+end;
+
+
+procedure TSortThread.Erease(i, len: integer);
+begin
+  with FBox do
+  begin
+    FBox.Canvas.Lock;
+    Canvas.Pen.Color := clBtnFace;
+    PaintLine(Canvas, i, len);
+    FBox.Canvas.UnLock;    
+  end;
+end;
+
+procedure TSortThread.Paint(i, len: integer);
+begin
+  with FBox do
+  begin
+    FBox.Canvas.Lock;
+    Canvas.Pen.Color := clRed;
+    PaintLine(Canvas, i, len);
+    FBox.Canvas.UnLock;     
+  end; 
+end;
+
+{ TBubbleSort }
+//中心思想：两两比较，只要是大的往后移，小的就往前移  ---  交换
+procedure TBubbleSort.Sort(var A: array of Integer);
+var
+  I, J, T: Integer;
+begin
+  //从最后一个到第一个      
+  for I := High(A) downto Low(A) do
+    //第一个到最后一个 ，一次循环过后，最大的那个数，就沉入底部
+    for J := Low(A) to High(A) - 1 do
+      //第一个大于第二个，交换顺寻
+      if A[J] > A[J + 1] then
+      begin
+        VisualSwap(A[J], A[J + 1], J, J + 1);
+        T := A[J];
+        A[J] := A[J + 1];
+        A[J + 1] := T;
+        if Terminated then Exit;
+      end;       
+end;
+
+{ TSelectionSort }
+//中心思想：选择最小的放在第一个，次小的放在第二个……
+procedure TSelectionSort.Sort(var A: array of Integer);
+var
+  I, J, T: Integer;
+begin
+  //从最小到最大
+  for I := Low(A) to High(A) - 1 do
+    //内循环：从最大到最小
+    for J := High(A) downto I + 1 do
+      //选择一个最小的元素放在第一个位置
+      if A[I] > A[J] then
+      begin
+        VisualSwap(A[I], A[J], I, J);
+        T := A[I];
+        A[I] := A[J];
+        A[J] := T;
+        if Terminated then Exit;
+      end;
+end;
+
+{ TQuickSort }
+//中心思想：选定一个枢纽元素，让枢纽左边的元素都要小于枢纽元素，右边的都要大于枢纽元素
+//再使用递归的思想，将左（右）边的再次快速排序
+procedure TQuickSort.Sort(var A: array of Integer);
+
+  procedure QuickSort(var A: array of Integer; iLo, iHi: Integer);
+  var
+    Lo, Hi, Mid, T: Integer;
+  begin
+    Lo := iLo;
+    Hi := iHi;
+    Mid := A[(Lo + Hi) div 2];   //中央枢纽元素
+    repeat
+      while A[Lo] < Mid do Inc(Lo);
+      while A[Hi] > Mid do Dec(Hi);
+      //对左右进行一次交换
+      if Lo <= Hi then
+      begin
+        VisualSwap(A[Lo], A[Hi], Lo, Hi);
+        T := A[Lo];
+        A[Lo] := A[Hi];
+        A[Hi] := T;
+        Inc(Lo);
+        Dec(Hi);
+      end;
+    until Lo > Hi;
+    //如果运行到这里就表示左边已经全部都小于右边了
+    //在将被分割的数组左边再次进行排序   
+    if Hi > iLo then QuickSort(A, iLo, Hi);
+    //在将被分割的数组右边再次进行排序    
+    if Lo < iHi then QuickSort(A, Lo, iHi);
+    if Terminated then Exit;
+  end;
+
+begin
+  QuickSort(A, Low(A), High(A));
+end;
+
+{ TInsertSort }
+//中心思想：将数组抽象为两个部分：第一个部分为已经排序的数组，第二个部分为未排序数组。然后依次从未排序数组中选择一个数据插入到已经排序的数组
+procedure TInsertSort.Sort(var A: array of Integer);
+var
+  i,j,t:Integer;
+begin
+  inherited;
+  for i := 1 to Length(A)-1 do
+  begin
+    //A[0]当做已经初排序只有1个元素的数组
+    t:=A[i];
+    //选择并插入 ，插入就会有移位操作
+    j:=i-1;
+    while ((j>=0) and (a[j]>t)) do
+    begin
+      Erease(j+1,a[j+1]);
+      paint(j+1,a[j]);   //这里需要同步
+      a[j+1]:=a[j];
+      Dec(j);
+    end;
+    Erease(j+1,a[j+1]);
+    paint(j+1,t);
+    A[j+1]:=t;
+  end;   
+end;
+
+{ TMergeSort }
+
+procedure TMergeSort.Sort(var A: array of Integer);
+const
+  VeryBig=999999999;  
+  procedure Merge(var A:array of Integer;Left,Mid,Right:integer);
+  var
+    tempArray1,tempArray2:Array of Integer;
+    count1,count2,i,j,k:integer;
+  begin
+    count1:=Mid-Left+1;
+    count2:=Right-Mid; //数组2是从Mid+1开始的
+    SetLength(tempArray1,count1+1);
+    SetLength(tempArray2,count2+1);
+    for i := 0 to count1-1 do
+    begin
+      tempArray1[i]:=A[Left+i];
+    end;
+    for i := 0 to count2-1 do
+    begin
+      tempArray2[i]:=A[Mid+1+i];
+    end;
+    tempArray1[count1]:=VeryBig;
+    tempArray2[count2]:=VeryBig;
+    i:=0;
+    j:=0;
+    for k := Left to Right do
+    begin
+      if tempArray1[i]<=tempArray2[j] then
+      begin
+        Erease(k,a[k]);
+        paint(k,tempArray1[i]);
+        A[k]:= tempArray1[i];
+        i:=i+1;
+      end
+      else
+      begin
+        Erease(k,a[k]);
+        paint(k,tempArray2[j]);
+        A[k]:= tempArray2[j];
+        j:=j+1;
+      end;
+    end;
+  end;
+  procedure MergeSort(var A:array of Integer;left,right:integer);
+  var
+    Mid:integer;
+  begin
+    if left<right then
+    begin
+      Mid:=(left+right) div 2;
+      MergeSort(A,left,Mid);
+      MergeSort(A,Mid+1,right);
+      Merge(A,left,Mid,right);
+    end;
+  end;
+begin
+  inherited;
+  MergeSort(A,Low(A),High(A));
+end;
+
+{ THeapSort }
+
+procedure THeapSort.CreateMaxHeap(var A: array of Integer);
+var
+  i:integer;
+begin
+  heapSize:=Length(A)-1;
+  //子数组A[(length(A) div 2) +1 .. (length(A)-1] 是完全二叉树的叶子节点
+  for i := (heapSize shr 1) downto 0 do
+  begin
+    MaxHeapify(A,i);
+  end;
+end;
+
+function THeapSort.LeftChild(parent: integer): Integer;
+begin
+  Result:=parent shl 1;
+end;
+
+function THeapSort.RightChild(parent: integer): Integer;
+begin
+  Result:=parent shl 1 +1;
+end;
+
+procedure THeapSort.MaxHeapify(var A: array of Integer; i: integer);
+var
+  Left,Right,bigger:Integer;
+begin
+  Left:= LeftChild(i);
+  Right:= RightChild(i);
+  //最大堆要确保根节点必须不小于左右子树
+  if (Left<=heapSize) then
+  begin
+    if (A[Left]>A[i]) then
+      bigger := Left
+    else
+      bigger:= i;
+  end;
+  if (Right<=heapSize) then
+    if (A[Right]>A[bigger]) then
+      bigger:=Right;
+  if bigger<>i then
+  begin
+    Swap(A,i,bigger);
+    //子树节点值改变的话，就继续递归子树
+    MaxHeapify(A,bigger);
+  end;
+end;
+
+procedure THeapSort.Sort(var A: array of Integer);
+var
+  i:integer;
+begin
+  inherited;
+  CreateMaxHeap(A);
+  for i := heapSize downto 1 do
+  begin
+    Swap(A,i,0);
+    Dec(heapSize);
+    MaxHeapify(A,0);
+  end;
+end;
+
+procedure THeapSort.Swap(var A:array of Integer;item1, item2: Integer);
+var
+  temp:integer;
+begin
+  VisualSwap(A[item1], A[item2], item1,item2);
+  temp:=A[item1];
+  A[item1]:=A[item2];
+  A[item2]:=temp;
+end;
+
+{ TCountingSort }
+
+procedure TCountingSort.Sort(var A: array of Integer);
+var
+  Max,i:Integer;
+  B,C:Array of Integer;
+  procedure CountingSort(var A,B,C:array of Integer);
+  var
+    i:integer;
+  begin
+    for i := 0 to Length(A)-1 do
+    begin
+      c[A[i]]:=c[A[i]]+1;  //c[i]表示，莫数的个数
+    end;
+    for i := 1 to Max do   //c[i]表示，小于或者等于某数的个数
+    begin
+      c[i]:=c[i]+c[i-1];
+    end;
+    for i := Length(A)-1 downto 0 do
+    begin
+      B[c[A[i]]-1]:=A[i];
+      Dec(c[a[i]]);
+    end;           
+  end;
+begin
+  inherited;
+  Max:=A[0];       //这里需要确保数组元素个数大于或者等于1，否则rang out of boundary
+  for i := 1 to Length(A)-1 do
+  begin
+    if a[I]>Max then Max:=A[i];
+  end;
+  SetLength(C,Max+1);//包括0
+  SetLength(B,Length(A));
+  CountingSort(A,B,C);
+  for i := 0 to Length(A)-1 do
+  begin
+    A[i]:=B[i];
+  end;
+  FBox.Invalidate;        
+end;
+
+end.
